@@ -1,0 +1,67 @@
+# 株式監視 → LINE自動通知システム
+
+保有銘柄・監視銘柄について、YouTube動画要約/株価・出来高・チャート/ニュース/マクロイベント/新規監視銘柄提案/弱気シナリオを、平日2回LINEに自動通知するシステムです。
+
+- 日本株パート: 平日 21:00 JST(東証終値確定後)
+- 米国株パート: 平日 翌7:00 JST(米国市場引け後)
+- 東証休場日(祝日・年末年始等)は日本株パートをスキップ、米国市場休場日は米国株パートをスキップします
+
+実行基盤は GitHub Actions です。追加のサーバー管理は不要ですが、**このリポジトリを public にする必要があります**(チャート画像を `raw.githubusercontent.com` 経由でLINEに配信するため。private リポジトリの場合は別途 Imgur 等への切替が必要です)。
+
+## セットアップ手順
+
+### 1. GitHubリポジトリを作成してpush
+
+このディレクトリの内容を、新規作成した **public** リポジトリにpushしてください。
+
+### 2. Secretsを登録
+
+リポジトリの `Settings → Secrets and variables → Actions → New repository secret` から、以下をすべて登録してください(値はコードに直接書き込まないでください):
+
+| Secret名 | 内容 |
+|---|---|
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging APIのチャネルアクセストークン |
+| `LINE_USER_ID` | 通知先のLINEユーザーID |
+| `ANTHROPIC_API_KEY` | Anthropic Claude APIキー(要約・判定・レポート生成に使用) |
+| `GOOGLE_CSE_API_KEY` | Google Custom Search JSON APIキー |
+| `GOOGLE_CSE_CX` | Google Custom Search 検索エンジンID(CX) |
+
+### 3. 監視するYouTubeチャンネルを登録
+
+`data/channels.json` にチャンネルURLを追記してください(初期状態は空配列 `[]`)。
+
+```json
+[
+  "https://www.youtube.com/@example1",
+  "https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxx"
+]
+```
+
+APIキーは不要です。`@handle` 形式・`/channel/UC...` 形式のいずれのURLでも構いません。
+
+### 4. 動作確認
+
+GitHubの `Actions` タブから各ワークフローを `Run workflow`(手動実行)で動かし、LINEにメッセージが届くか確認してください。
+
+ローカルで確認する場合は、上記5つの環境変数をセットした上で:
+
+```bash
+pip install -r requirements.txt
+python src/main_jp.py
+python src/main_us.py
+```
+
+## 保有銘柄・監視銘柄の変更
+
+`config/holdings.py` / `config/watchlist.py` を直接編集してください。長期配当目的保有(買い増し・売却判定の対象外)の銘柄は `holdings.py` 内で `dividend_hold=True` として管理しています。
+
+## 運用上の注意
+
+- **LINE無料メッセージ枠**: LINE Messaging APIの無料プランは月あたりのメッセージ数に上限があります(目安 月200通程度、時期により変動)。このシステムはチャート画像を「値動きが目立った銘柄」のみに絞って送信することで枠消費を抑える設計です。アラートが多発する月は枠を超過する可能性があるため、必要に応じて有料プランへの切替を検討してください。
+- **API利用料**: Anthropic API・Google Custom Search APIは従量課金/日次上限があります。Google CSEは無料枠(100クエリ/日)内に収まるよう、ニュース深掘り検索を「±3%以上の値動き or 出来高急増を検知した銘柄」のみに限定しています。監視銘柄を大幅に増やす場合は上限に注意してください。
+- **休場日判定の限界**: `jpholiday` ライブラリ + 年末年始固定ロジックによる近似判定です。イレギュラーな臨時休場等には対応していません。米国市場は `pandas_market_calendars`(NYSEカレンダー)で判定しています。
+- **状態の永続化**: 処理済みYouTube動画ID(`state/processed_videos.json`)とチャート画像(`charts/`)は、Actions実行のたびにこのリポジトリへ自動コミットされます。
+
+## エラー通知
+
+データ取得(YouTube・株価・ニュース等)のいずれかが失敗した場合、無言で終わらせず「◯◯の取得に失敗」という形でLINEに通知します。スクリプト全体が想定外のエラーで停止した場合も、可能な範囲で緊急通知を送ります。

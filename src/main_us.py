@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.holdings import US_HOLDINGS
 from config.watchlist import US_WATCHLIST
-from src import claude_client, line_client, market_calendar, report
+from src import gemini_client, line_client, market_calendar, report
 
 JST = dt.timezone(dt.timedelta(hours=9))
 
@@ -41,7 +41,7 @@ def main() -> None:
         line_client.notify_failure("チャート画像のアップロード", str(e))
 
     try:
-        text = claude_client.compose_report(facts)
+        text = gemini_client.compose_report(facts)
     except Exception as e:
         line_client.notify_failure("レポート生成", str(e))
         text = "本日のレポート生成に失敗しました。個別の失敗通知をご確認ください。"

@@ -1,19 +1,37 @@
-"""Anthropic Claude APIラッパー: 動画判定・乖離率の定性判定・レポート合成。
+"""Google Gemini API ラッパー: 動画判定・乖離率の定性判定・レポート合成。
 
-ANTHROPIC_API_KEY は環境変数からのみ取得する(Anthropic SDKが自動で読む)。
+GEMINI_API_KEY は環境変数からのみ取得する。無料枠(Gemini Flash系モデル)で
+収まる想定の呼び出し頻度(動画要約1本ごと・乖離判定は銘柄ごと・レポート生成は
+セッションごとに1〜2回)としている。
+
+モデル名はAPIの世代交代が早いため環境変数 GEMINI_MODEL で上書き可能にしてある。
+既定値がエラーになる場合は https://ai.google.dev/gemini-api/docs/models で
+現行の無料枠モデル名を確認し、GitHub Secrets or Actions変数で上書きすること。
 """
 from __future__ import annotations
 
 import json
 import os
 
-from anthropic import Anthropic
+from google import genai
+from google.genai import types
 
-_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5")
+_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
 
 
-def _client() -> Anthropic:
-    return Anthropic()
+def _client() -> genai.Client:
+    return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+
+def _generate(system: str, prompt: str, max_output_tokens: int, json_output: bool = False) -> str:
+    config = types.GenerateContentConfig(
+        system_instruction=system,
+        max_output_tokens=max_output_tokens,
+        temperature=0.3,
+        response_mime_type="application/json" if json_output else "text/plain",
+    )
+    resp = _client().models.generate_content(model=_MODEL, contents=prompt, config=config)
+    return (resp.text or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +52,7 @@ _JUDGE_SYSTEM = """あなたは株式投資家向けのアナリストです。Y
 チャートの話題を含む場合でも、業績との整合性(ファンダメンタルズとの整合)が
 語られていなければ採用基準を満たさないと判断すること。
 
-出力は必ず以下のJSON形式のみで返すこと(前置きや```json```での囲みは不要):
+出力は必ず以下のJSON形式のみで返すこと:
 {"relevant": true または false, "reason": "採用/除外の理由(1文)", "summary": "採用時のみ:保有銘柄・監視銘柄への影響を中心とした要約(150字程度)"}
 """
 
@@ -45,13 +63,8 @@ def judge_video(title: str, transcript: str, target_names: list[str]) -> dict:
         f"保有・監視対象銘柄: {', '.join(target_names)}\n\n"
         f"字幕(先頭12000字):\n{transcript[:12000]}"
     )
-    resp = _client().messages.create(
-        model=_MODEL,
-        max_tokens=600,
-        system=_JUDGE_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return _parse_json(resp.content[0].text)
+    text = _generate(_JUDGE_SYSTEM, prompt, max_output_tokens=600, json_output=True)
+    return _parse_json(text)
 
 
 def _parse_json(text: str) -> dict:
@@ -91,13 +104,7 @@ def classify_deviation(
         f"25週線乖離率の過去2年分布内での位置(パーセンタイル、大きいほど乖離が高水準): {dev25w_percentile}\n"
         f"25週線の直近8週間の傾き: {ma25w_slope_pct}"
     )
-    resp = _client().messages.create(
-        model=_MODEL,
-        max_tokens=100,
-        system=_DEVIATION_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text.strip()
+    return _generate(_DEVIATION_SYSTEM, prompt, max_output_tokens=100)
 
 
 # ---------------------------------------------------------------------------
@@ -134,25 +141,15 @@ _BEAR_KEYWORDS = ("懸念", "リスク", "弱気", "下振れ", "警戒")
 
 def compose_report(facts: dict) -> str:
     payload = json.dumps(facts, ensure_ascii=False, indent=2)
-    text = _generate_report(payload)
+    text = _generate(_REPORT_SYSTEM, payload, max_output_tokens=3000)
     if _needs_bear_case_retry(text):
         reminder = (
             "\n\n【重要な再確認】前回の出力には、買い候補または保有継続とした銘柄に対する"
             "弱気シナリオ・懸念点が不足していました。該当する全ての銘柄について、必ず懸念点を"
             "最低1つ明記した上で、レポート全文を再生成してください。"
         )
-        text = _generate_report(payload + reminder)
+        text = _generate(_REPORT_SYSTEM, payload + reminder, max_output_tokens=3000)
     return text
-
-
-def _generate_report(user_content: str) -> str:
-    resp = _client().messages.create(
-        model=_MODEL,
-        max_tokens=3000,
-        system=_REPORT_SYSTEM,
-        messages=[{"role": "user", "content": user_content}],
-    )
-    return resp.content[0].text.strip()
 
 
 def _needs_bear_case_retry(text: str) -> bool:

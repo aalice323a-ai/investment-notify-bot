@@ -22,7 +22,7 @@
 |---|---|
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging APIのチャネルアクセストークン |
 | `LINE_USER_ID` | 通知先のLINEユーザーID |
-| `ANTHROPIC_API_KEY` | Anthropic Claude APIキー(要約・判定・レポート生成に使用) |
+| `GEMINI_API_KEY` | Google Gemini APIキー(要約・判定・レポート生成に使用。無料枠のFlash系モデルを想定) |
 | `GOOGLE_CSE_API_KEY` | Google Custom Search JSON APIキー |
 | `GOOGLE_CSE_CX` | Google Custom Search 検索エンジンID(CX) |
 
@@ -58,7 +58,7 @@ python src/main_us.py
 ## 運用上の注意
 
 - **LINE無料メッセージ枠**: LINE Messaging APIの無料プランは月あたりのメッセージ数に上限があります(目安 月200通程度、時期により変動)。このシステムはチャート画像を「値動きが目立った銘柄」のみに絞って送信することで枠消費を抑える設計です。アラートが多発する月は枠を超過する可能性があるため、必要に応じて有料プランへの切替を検討してください。
-- **API利用料**: Anthropic API・Google Custom Search APIは従量課金/日次上限があります。Google CSEは無料枠(100クエリ/日)内に収まるよう、ニュース深掘り検索を「±3%以上の値動き or 出来高急増を検知した銘柄」のみに限定しています。監視銘柄を大幅に増やす場合は上限に注意してください。
+- **API利用料**: Gemini APIは無料枠(Flash系モデルで目安 1日あたり数百〜千リクエスト程度、Google側の規約変更で随時変わります)内に収まる呼び出し頻度で設計していますが、モデル名(既定値 `gemini-flash-latest`)が古くなった場合はエラーになることがあります。その場合は [Gemini APIのモデル一覧](https://ai.google.dev/gemini-api/docs/models) を確認し、GitHub Secretsに `GEMINI_MODEL` を追加して現行の無料枠モデル名(例: `gemini-3-flash` 等)を明示的に指定してください。Google Custom Search APIは無料枠(100クエリ/日)内に収まるよう、ニュース深掘り検索を「±3%以上の値動き or 出来高急増を検知した銘柄」のみに限定しています。監視銘柄を大幅に増やす場合は上限に注意してください。
 - **休場日判定の限界**: `jpholiday` ライブラリ + 年末年始固定ロジックによる近似判定です。イレギュラーな臨時休場等には対応していません。米国市場は `pandas_market_calendars`(NYSEカレンダー)で判定しています。
 - **状態の永続化**: 処理済みYouTube動画ID(`state/processed_videos.json`)とチャート画像(`charts/`)は、Actions実行のたびにこのリポジトリへ自動コミットされます。
 

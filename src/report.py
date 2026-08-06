@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from config.holdings import Holding
-from src import claude_client, git_publish, line_client, news, stocks, youtube
+from src import gemini_client, git_publish, line_client, news, stocks, youtube
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = REPO_ROOT / "state" / "processed_videos.json"
@@ -71,7 +71,7 @@ def collect_video_facts(target_names: list[str]) -> tuple[list[dict], dict[str, 
                 continue
 
             try:
-                judgement = claude_client.judge_video(video.title, transcript, target_names)
+                judgement = gemini_client.judge_video(video.title, transcript, target_names)
             except Exception as e:
                 line_client.notify_failure(f"動画『{video.title}』の要約", str(e))
                 continue
@@ -153,7 +153,7 @@ def collect_ticker_facts(
 
         if snap.dev25w_pct is not None:
             try:
-                entry["deviation_judgement"] = claude_client.classify_deviation(
+                entry["deviation_judgement"] = gemini_client.classify_deviation(
                     snap.name,
                     snap.dev25w_pct,
                     snap.dev75w_pct,

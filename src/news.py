@@ -11,6 +11,8 @@ import os
 
 import requests
 
+from src.log import log
+
 _ENDPOINT = "https://www.googleapis.com/customsearch/v1"
 
 
@@ -26,6 +28,8 @@ def _search(query: str, date_restrict: str | None = None, num: int = 5) -> list[
     if date_restrict:
         params["dateRestrict"] = date_restrict
     resp = requests.get(_ENDPOINT, params=params, timeout=20)
+    if not resp.ok:
+        log(f"[GoogleCSE] HTTP {resp.status_code} body={resp.text[:500]}")
     resp.raise_for_status()
     data = resp.json()
     results = []

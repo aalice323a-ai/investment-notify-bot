@@ -34,7 +34,8 @@ def save_processed_videos(state: dict[str, list[str]]) -> None:
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def load_channels() -> list[str]:
+def load_channels() -> list[dict]:
+    """[{"url": ..., "channel_id": "UC..."}, ...] を返す(data/channels.json)。"""
     if CHANNELS_PATH.exists():
         return json.loads(CHANNELS_PATH.read_text(encoding="utf-8"))
     return []
@@ -51,14 +52,9 @@ def collect_video_facts(target_names: list[str]) -> tuple[list[dict], dict[str, 
     state = load_processed_videos()
     summaries: list[dict] = []
 
-    for url in channels:
-        log(f"[YouTube] resolving channel id for {url}")
-        try:
-            channel_id = youtube.resolve_channel_id(url)
-        except Exception as e:
-            log(f"[YouTube] ERROR resolving {url}: {type(e).__name__}: {e}")
-            line_client.notify_failure(f"YouTubeチャンネル({url})の解決", str(e))
-            continue
+    for channel in channels:
+        channel_id = channel["channel_id"]
+        url = channel.get("url", channel_id)
 
         known_ids = set(state.get(channel_id, []))
         try:

@@ -1,18 +1,21 @@
 """YouTubeチャンネルの新着動画取得・字幕取得(APIキー不要)。
 
-チャンネルIDの解決はページHTMLのスクレイピング、新着動画一覧は
-YouTube公式RSSフィード、字幕取得は youtube-transcript-api を用いる。
+チャンネルIDは data/channels.json にあらかじめ登録された値をそのまま使う
+(以前はチャンネルページのHTMLスクレイピングで実行時に解決していたが、
+YouTubeが返すページ内容が環境やリクエストのたびに変わり、(a) 正規表現が
+ページ内の無関係な要素のchannelIdを拾ってしまう、(b) GitHub Actionsの
+IPからは該当のJSONブロック自体が返らないことがある、という2つの理由で
+信頼できなかったため廃止した)。新着動画一覧はYouTube公式RSSフィード、
+字幕取得は youtube-transcript-api を用いる。
 """
 from __future__ import annotations
 
-import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 
-_CHANNEL_ID_RE = re.compile(r'"channelId":"(UC[0-9A-Za-z_-]{22})"')
 _RSS_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 _YT_NS = "{http://www.youtube.com/xml/schemas/2015}"
@@ -24,19 +27,6 @@ class Video:
     title: str
     published: str
     url: str
-
-
-def resolve_channel_id(channel_url: str) -> str:
-    """@handle や /channel/UC... 等、任意形式のチャンネルURLからchannelIdを解決する。"""
-    m = re.search(r"/channel/(UC[0-9A-Za-z_-]{22})", channel_url)
-    if m:
-        return m.group(1)
-    resp = requests.get(channel_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-    resp.raise_for_status()
-    m = _CHANNEL_ID_RE.search(resp.text)
-    if not m:
-        raise ValueError(f"channelIdを解決できませんでした: {channel_url}")
-    return m.group(1)
 
 
 def fetch_new_videos(channel_id: str, known_ids: set[str]) -> list[Video]:

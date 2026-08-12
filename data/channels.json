@@ -1,6 +1,18 @@
 [
-  "https://www.youtube.com/@bacchama",
-  "https://www.youtube.com/@Gorikoro",
-  "https://www.youtube.com/@USStockhanako",
-  "https://www.youtube.com/@songiri_battosai"
+  {
+    "url": "https://www.youtube.com/@bacchama",
+    "channel_id": "UCzZSnddt3xTL0V-ELJaMUFw"
+  },
+  {
+    "url": "https://www.youtube.com/@Gorikoro",
+    "channel_id": "UCHFHbnObUly48I9cM66xVSw"
+  },
+  {
+    "url": "https://www.youtube.com/@USStockhanako",
+    "channel_id": "UCRwOeApFFyIoyEulSOmONBw"
+  },
+  {
+    "url": "https://www.youtube.com/@songiri_battosai",
+    "channel_id": "UCHRc1xPnsQ2dJbzBKU1uUJg"
+  }
 ]

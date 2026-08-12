@@ -28,16 +28,17 @@
 
 ### 3. 監視するYouTubeチャンネルを登録
 
-`data/channels.json` にチャンネルURLを追記してください(初期状態は空配列 `[]`)。
+`data/channels.json` に `{"url": ..., "channel_id": "UC..."}` の形式で追記してください(初期状態は空配列 `[]`)。
 
 ```json
 [
-  "https://www.youtube.com/@example1",
-  "https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxx"
+  {"url": "https://www.youtube.com/@example1", "channel_id": "UCxxxxxxxxxxxxxxxxxxxxxx"}
 ]
 ```
 
-APIキーは不要です。`@handle` 形式・`/channel/UC...` 形式のいずれのURLでも構いません。
+APIキーは不要ですが、**channelId(`UC`から始まる24文字の文字列)は事前に調べて登録する必要があります**(チャンネルページのHTMLを実行時にスクレイピングしてchannelIdを解決する方式は、YouTubeが返すページ内容が環境やリクエストのたびに変わり信頼できなかったため廃止しました)。
+
+channelIdの調べ方: チャンネルページ(`https://www.youtube.com/@handle`)を開き、ページのソースを表示して `rel="canonical" href="https://www.youtube.com/channel/UCxxxx..."` を探すと確実です。新しいチャンネルを追加したい場合は、そのURLを伝えていただければ代わりに調べて追記します。
 
 ### 4. 動作確認
 

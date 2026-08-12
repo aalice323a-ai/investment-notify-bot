@@ -9,6 +9,8 @@ import os
 
 import requests
 
+from src.log import log
+
 _PUSH_URL = "https://api.line.me/v2/bot/message/push"
 _TEXT_CHUNK_LIMIT = 4500
 _MAX_MESSAGES_PER_CALL = 5
@@ -39,15 +41,16 @@ def _chunk_text(text: str, limit: int = _TEXT_CHUNK_LIMIT) -> list[str]:
     return chunks
 
 
+def _post(payload: dict) -> requests.Response:
+    resp = requests.post(_PUSH_URL, headers=_headers(), json=payload, timeout=30)
+    log(f"[LINE] POST status={resp.status_code} body={resp.text[:500]}")
+    return resp
+
+
 def _send(messages: list[dict]) -> None:
     for i in range(0, len(messages), _MAX_MESSAGES_PER_CALL):
         batch = messages[i : i + _MAX_MESSAGES_PER_CALL]
-        resp = requests.post(
-            _PUSH_URL,
-            headers=_headers(),
-            json={"to": _user_id(), "messages": batch},
-            timeout=30,
-        )
+        resp = _post({"to": _user_id(), "messages": batch})
         resp.raise_for_status()
 
 
@@ -59,18 +62,19 @@ def push_report(text: str, image_urls: list[str] | None = None) -> None:
     for url in image_urls or []:
         messages.append({"type": "image", "originalContentUrl": url, "previewImageUrl": url})
     if messages:
+        log(f"[LINE] sending {len(messages)} message object(s)")
         _send(messages)
+    else:
+        log("[LINE] nothing to send (empty text and no images)")
 
 
 def notify_failure(component: str, error: str) -> None:
-    """他モジュールの障害に影響されないよう、最小限の依存で即時通知する。"""
+    """他モジュールの障害に影響されないよう、最小限の依存で即時通知する。
+    このヘルパー自体の失敗は握りつぶさず必ずprintする(ただし再送はしない)。
+    """
+    message = f"⚠️ {component}の取得に失敗: {error}"[:1000]
+    log(f"[LINE] notify_failure: {message}")
     try:
-        message = f"⚠️ {component}の取得に失敗: {error}"[:1000]
-        requests.post(
-            _PUSH_URL,
-            headers=_headers(),
-            json={"to": _user_id(), "messages": [{"type": "text", "text": message}]},
-            timeout=30,
-        )
-    except Exception:
-        pass
+        _post({"to": _user_id(), "messages": [{"type": "text", "text": message}]})
+    except Exception as e:
+        log(f"[LINE] ERROR notify_failure itself failed: {type(e).__name__}: {e}")

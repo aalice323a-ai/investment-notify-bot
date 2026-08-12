@@ -11,14 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config.holdings import JP_HOLDINGS, US_HOLDINGS
 from config.watchlist import JP_WATCHLIST, US_WATCHLIST
 from src import gemini_client, line_client, market_calendar, report
+from src.log import log
 
 JST = dt.timezone(dt.timedelta(hours=9))
 
 
 def main() -> None:
+    log("=== JP session start ===")
     today = dt.datetime.now(JST).date()
+    log(f"today(JST)={today.isoformat()} weekday={today.strftime('%A')}")
+
     if not market_calendar.is_jpx_trading_day(today):
+        log("today is NOT a JPX trading day -> skip (no LINE message sent)")
         return  # 東証休場日はスキップ
+    log("today IS a JPX trading day -> proceeding")
 
     chart_dir = report.CHARTS_ROOT / today.isoformat() / "jp"
     # YouTube動画の判定は保有・監視銘柄全体(日本株+米国株)を対象にする
@@ -30,6 +36,7 @@ def main() -> None:
     new_candidates = report.collect_new_candidate_research()
 
     report.save_processed_videos(video_state)
+    log("processed_videos.json saved locally")
 
     facts = {
         "session": "jp",
@@ -44,20 +51,27 @@ def main() -> None:
     try:
         image_urls = report.publish_charts_and_state(chart_paths)
     except Exception as e:
+        log(f"ERROR publishing charts/state: {type(e).__name__}: {e}")
         line_client.notify_failure("チャート画像のアップロード", str(e))
 
+    log("requesting report composition from Gemini")
     try:
         text = gemini_client.compose_report(facts)
+        log(f"report composed: {len(text)} character(s)")
     except Exception as e:
+        log(f"ERROR composing report: {type(e).__name__}: {e}")
         line_client.notify_failure("レポート生成", str(e))
         text = "本日のレポート生成に失敗しました。個別の失敗通知をご確認ください。"
 
+    log(f"pushing report to LINE ({len(image_urls)} image(s))")
     line_client.push_report(text, image_urls)
+    log("=== JP session end ===")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
+        log(f"FATAL: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         line_client.notify_failure("日本株パート全体の処理", f"{e}\n{traceback.format_exc()[:400]}")
         raise

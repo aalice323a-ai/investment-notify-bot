@@ -10,16 +10,20 @@ import os
 import subprocess
 from pathlib import Path
 
+from src.log import log
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _run(*args: str) -> None:
+    log(f"[GitPublish] $ {' '.join(args)}")
     subprocess.run(args, cwd=REPO_ROOT, check=True)
 
 
 def commit_and_push(paths: list[Path], message: str) -> None:
     """指定パスに変更があればコミットしてpushする。変更が無ければ何もしない。"""
     if not paths:
+        log("[GitPublish] no paths given, nothing to do")
         return
     rel_paths = [
         str(p.relative_to(REPO_ROOT)) if p.is_absolute() else str(p) for p in paths
@@ -29,9 +33,11 @@ def commit_and_push(paths: list[Path], message: str) -> None:
     _run("git", "add", *rel_paths)
     diff_check = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=REPO_ROOT)
     if diff_check.returncode == 0:
+        log("[GitPublish] no staged changes, skipping commit/push")
         return  # 差分なし
     _run("git", "commit", "-m", message)
     _run("git", "push")
+    log("[GitPublish] commit + push complete")
 
 
 def raw_url(path: Path) -> str:

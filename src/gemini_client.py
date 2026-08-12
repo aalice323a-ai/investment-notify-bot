@@ -16,11 +16,21 @@ import os
 from google import genai
 from google.genai import types
 
+from src.log import log
+
 _MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+
+# 銘柄・動画ごとにクライアントを作り直すと(SDK内部の非同期後始末のタイミング次第で)
+# "client has been closed" 系のエラーになることがあるため、プロセス内で1つだけ生成して使い回す。
+_client_instance: genai.Client | None = None
 
 
 def _client() -> genai.Client:
-    return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    global _client_instance
+    if _client_instance is None:
+        log("[Gemini] creating client (once per process)")
+        _client_instance = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _client_instance
 
 
 def _generate(system: str, prompt: str, max_output_tokens: int, json_output: bool = False) -> str:

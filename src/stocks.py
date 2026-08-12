@@ -2,7 +2,7 @@
 
 「健全な乖離」か「過熱懸念」かといった定性判定はここでは行わず、
 数値(乖離率・過去分布上の位置・トレンド傾き)の算出までに留める。
-定性判定は gemini_client.classify_deviation に委ねる。
+定性判定は gemini_client.classify_deviations_batch に委ねる。
 """
 from __future__ import annotations
 

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import time
 
 from google import genai
 from google.genai import types
@@ -24,6 +26,12 @@ _MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
 # "client has been closed" 系のエラーになることがあるため、プロセス内で1つだけ生成して使い回す。
 _client_instance: genai.Client | None = None
 
+# 無料枠は1分あたりのリクエスト数が非常に少ない(モデルによっては5RPM程度)ため、
+# 429(RESOURCE_EXHAUSTED)時はサーバー指定の待機時間(retryDelay)に従ってリトライする。
+_MAX_RETRIES = 4
+_DEFAULT_BACKOFF_SECONDS = 20.0
+_RETRY_DELAY_RE = re.compile(r"retryDelay[\"':\s]+(\d+(?:\.\d+)?)s")
+
 
 def _client() -> genai.Client:
     global _client_instance
@@ -33,6 +41,11 @@ def _client() -> genai.Client:
     return _client_instance
 
 
+def _extract_retry_delay(error_text: str) -> float:
+    m = _RETRY_DELAY_RE.search(error_text)
+    return float(m.group(1)) if m else _DEFAULT_BACKOFF_SECONDS
+
+
 def _generate(system: str, prompt: str, max_output_tokens: int, json_output: bool = False) -> str:
     config = types.GenerateContentConfig(
         system_instruction=system,
@@ -40,8 +53,19 @@ def _generate(system: str, prompt: str, max_output_tokens: int, json_output: boo
         temperature=0.3,
         response_mime_type="application/json" if json_output else "text/plain",
     )
-    resp = _client().models.generate_content(model=_MODEL, contents=prompt, config=config)
-    return (resp.text or "").strip()
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            resp = _client().models.generate_content(model=_MODEL, contents=prompt, config=config)
+            return (resp.text or "").strip()
+        except Exception as e:
+            text = str(e)
+            is_rate_limited = "429" in text or "RESOURCE_EXHAUSTED" in text
+            if not is_rate_limited or attempt == _MAX_RETRIES:
+                raise
+            wait = _extract_retry_delay(text)
+            log(f"[Gemini] 429 rate limited (attempt {attempt}/{_MAX_RETRIES}), waiting {wait:.0f}s")
+            time.sleep(wait)
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
@@ -89,32 +113,37 @@ def _parse_json(text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ② 週足乖離率の定性判定
+# ② 週足乖離率の定性判定(全銘柄まとめて1回のAPI呼び出しで取得し、レート制限を回避する)
 # ---------------------------------------------------------------------------
 
-_DEVIATION_SYSTEM = """あなたは株式テクニカルアナリストです。週足の25週線・75週線からの乖離率データを見て、
+_DEVIATION_BATCH_SYSTEM = """あなたは株式テクニカルアナリストです。複数銘柄それぞれについて、
+週足の25週線・75週線からの乖離率データを見て、
 「上昇トレンド中の健全な乖離」「過熱懸念」「下落トレンド中の戻り待ち」「弱含み」等、
-直近のトレンド方向も踏まえて簡潔に(30字程度)判定してください。
-出力は判定結果の文字列のみとし、前置きや説明は不要です。"""
+直近のトレンド方向も踏まえて銘柄ごとに簡潔に(30字程度)判定してください。
+
+出力は必ず次のJSON形式のみで返すこと(入力された銘柄コードをキーとする):
+{"<銘柄コード>": "<判定文>", "<銘柄コード>": "<判定文>", ...}
+入力に含まれる全ての銘柄コードを必ずキーとして含めること。"""
 
 
-def classify_deviation(
-    name: str,
-    dev25w_pct: float | None,
-    dev75w_pct: float | None,
-    dev25w_percentile: float | None,
-    ma25w_slope_pct: float | None,
-    trend: str,
-) -> str:
-    prompt = (
-        f"銘柄: {name}\n"
-        f"直近トレンド(日足ベース): {trend}\n"
-        f"25週線乖離率: {dev25w_pct}\n"
-        f"75週線乖離率: {dev75w_pct}\n"
-        f"25週線乖離率の過去2年分布内での位置(パーセンタイル、大きいほど乖離が高水準): {dev25w_percentile}\n"
-        f"25週線の直近8週間の傾き: {ma25w_slope_pct}"
+def classify_deviations_batch(items: list[dict]) -> dict[str, str]:
+    """複数銘柄の週足乖離率判定を1回のAPI呼び出しでまとめて取得する。
+
+    items: [{"code", "name", "dev25w_pct", "dev75w_pct", "dev25w_percentile",
+             "ma25w_slope_pct", "trend"}, ...]
+    戻り値: {code: 判定文, ...}(失敗時は空dict)
+    """
+    if not items:
+        return {}
+    payload = json.dumps(items, ensure_ascii=False, indent=2)
+    text = _generate(
+        _DEVIATION_BATCH_SYSTEM, payload, max_output_tokens=2000, json_output=True
     )
-    return _generate(_DEVIATION_SYSTEM, prompt, max_output_tokens=100)
+    try:
+        return _parse_json(text)
+    except json.JSONDecodeError:
+        log(f"[Gemini] failed to parse batched deviation response: {text[:200]}")
+        return {}
 
 
 # ---------------------------------------------------------------------------

@@ -123,6 +123,7 @@ def collect_ticker_facts(
     log(f"[Stocks] start: {len(merged)} ticker(s) to process")
     facts: list[dict] = []
     chart_paths: list[Path] = []
+    deviation_items: list[dict] = []  # 週足乖離率判定を後でまとめて1回のAPI呼び出しにするため蓄積
 
     for roles in merged.values():
         ref = roles["holding"] or roles["watchlist"]
@@ -175,20 +176,17 @@ def collect_ticker_facts(
                 line_client.notify_failure(f"{ref.name}のチャート生成", str(e))
 
         if snap.dev25w_pct is not None:
-            log(f"[Stocks] {ref.name}: requesting deviation judgement from Gemini")
-            try:
-                entry["deviation_judgement"] = gemini_client.classify_deviation(
-                    snap.name,
-                    snap.dev25w_pct,
-                    snap.dev75w_pct,
-                    snap.dev25w_percentile,
-                    snap.ma25w_slope_pct,
-                    snap.trend,
-                )
-                log(f"[Stocks] {ref.name}: deviation_judgement={entry['deviation_judgement']}")
-            except Exception as e:
-                log(f"[Stocks] ERROR classifying deviation for {ref.name}: {type(e).__name__}: {e}")
-                line_client.notify_failure(f"{ref.name}の乖離率判定", str(e))
+            deviation_items.append(
+                {
+                    "code": snap.code,
+                    "name": snap.name,
+                    "dev25w_pct": entry.get("dev25w_pct"),
+                    "dev75w_pct": entry.get("dev75w_pct"),
+                    "dev25w_percentile": snap.dev25w_percentile,
+                    "ma25w_slope_pct": snap.ma25w_slope_pct,
+                    "trend": snap.trend,
+                }
+            )
 
         # 「簡易チェック」= 数値のみ。深掘りニュース検索は値動きが目立った銘柄のみ
         if is_mover:
@@ -201,6 +199,18 @@ def collect_ticker_facts(
                 line_client.notify_failure(f"{ref.name}のニュース検索", str(e))
 
         facts.append(entry)
+
+    if deviation_items:
+        log(f"[Stocks] requesting batched deviation judgement for {len(deviation_items)} ticker(s)")
+        try:
+            judgements = gemini_client.classify_deviations_batch(deviation_items)
+            for entry in facts:
+                if entry["code"] in judgements:
+                    entry["deviation_judgement"] = judgements[entry["code"]]
+            log(f"[Stocks] batched deviation judgement done: {len(judgements)} result(s)")
+        except Exception as e:
+            log(f"[Stocks] ERROR batched deviation judgement: {type(e).__name__}: {e}")
+            line_client.notify_failure("週足乖離率判定(一括)", str(e))
 
     log(f"[Stocks] done: {len(facts)} ticker(s) processed, {len(chart_paths)} chart image(s)")
     return facts, chart_paths

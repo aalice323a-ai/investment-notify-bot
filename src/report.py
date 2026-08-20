@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from config.holdings import Holding
-from src import gemini_client, git_publish, line_client, news, stocks, youtube
+from src import gemini_client, git_publish, line_client, macro_calendar, stocks, youtube
 from src.log import log
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -97,7 +97,7 @@ def collect_video_facts(target_names: list[str]) -> tuple[list[dict], dict[str, 
 
 
 # ---------------------------------------------------------------------------
-# ② 株価・出来高・チャート情報 / ③ ニュース収集
+# ② 株価・出来高・チャート情報
 # ---------------------------------------------------------------------------
 
 def _merge_targets(holdings: list[Holding], watchlist: list[Holding]) -> dict[str, dict]:
@@ -184,16 +184,6 @@ def collect_ticker_facts(
                 }
             )
 
-        # 「簡易チェック」= 数値のみ。深掘りニュース検索は値動きが目立った銘柄のみ
-        if is_mover:
-            log(f"[Stocks] {ref.name}: searching news (mover)")
-            try:
-                entry["news"] = news.search_stock_news(snap.name, snap.code)
-                log(f"[Stocks] {ref.name}: {len(entry['news'])} news result(s)")
-            except Exception as e:
-                log(f"[Stocks] ERROR searching news for {ref.name}: {type(e).__name__}: {e}")
-                line_client.notify_failure(f"{ref.name}のニュース検索", str(e))
-
         facts.append(entry)
 
     if deviation_items:
@@ -213,31 +203,13 @@ def collect_ticker_facts(
 
 
 # ---------------------------------------------------------------------------
-# ④ 新規監視銘柄の提案材料 / ⑤ マクロイベントカレンダー
+# ⑤ マクロイベントカレンダー(公式発表済みの確定日程を直接参照。検索APIは使わない)
 # ---------------------------------------------------------------------------
 
-def collect_macro_events() -> list[dict]:
-    log("[Macro] searching macro event calendar")
-    try:
-        results = news.search_macro_events()
-        log(f"[Macro] done: {len(results)} result(s)")
-        return results
-    except Exception as e:
-        log(f"[Macro] ERROR: {type(e).__name__}: {e}")
-        line_client.notify_failure("マクロイベントカレンダー", str(e))
-        return []
-
-
-def collect_new_candidate_research() -> list[dict]:
-    log("[NewCandidates] searching new watchlist candidate research")
-    try:
-        results = news.search_new_candidates()
-        log(f"[NewCandidates] done: {len(results)} result(s)")
-        return results
-    except Exception as e:
-        log(f"[NewCandidates] ERROR: {type(e).__name__}: {e}")
-        line_client.notify_failure("新規監視銘柄候補の検索", str(e))
-        return []
+def collect_macro_events(today: dt.date) -> list[dict]:
+    events = macro_calendar.upcoming_events(today)
+    log(f"[Macro] {len(events)} event(s) in the next 7 days")
+    return events
 
 
 # ---------------------------------------------------------------------------

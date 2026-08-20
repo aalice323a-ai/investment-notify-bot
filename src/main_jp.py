@@ -32,8 +32,7 @@ def main() -> None:
 
     video_summaries, video_state = report.collect_video_facts(all_names)
     ticker_facts, chart_paths = report.collect_ticker_facts(JP_HOLDINGS, JP_WATCHLIST, chart_dir)
-    macro_events = report.collect_macro_events()
-    new_candidates = report.collect_new_candidate_research()
+    macro_events = report.collect_macro_events(today)
 
     report.save_processed_videos(video_state)
     log("processed_videos.json saved locally")
@@ -43,8 +42,7 @@ def main() -> None:
         "date": today.isoformat(),
         "video_summaries": video_summaries,
         "tickers": ticker_facts,
-        "macro_events_search_results": macro_events,
-        "new_candidate_research_search_results": new_candidates,
+        "macro_events": macro_events,
     }
 
     image_urls: list[str] = []

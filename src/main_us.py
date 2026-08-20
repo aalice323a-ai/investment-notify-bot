@@ -30,14 +30,14 @@ def main() -> None:
 
     chart_dir = report.CHARTS_ROOT / today_jst.isoformat() / "us"
     ticker_facts, chart_paths = report.collect_ticker_facts(US_HOLDINGS, US_WATCHLIST, chart_dir)
-    macro_events = report.collect_macro_events()
+    macro_events = report.collect_macro_events(today_jst)
 
     facts = {
         "session": "us",
         "date": today_jst.isoformat(),
         "us_session_date": us_session_date.isoformat(),
         "tickers": ticker_facts,
-        "macro_events_search_results": macro_events,
+        "macro_events": macro_events,
     }
 
     image_urls: list[str] = []

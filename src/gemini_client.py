@@ -34,8 +34,13 @@ _MAX_RETRIES = 4
 _DEFAULT_BACKOFF_SECONDS = 20.0
 _OVERLOAD_BACKOFF_SECONDS = 60.0
 _RETRY_DELAY_RE = re.compile(r"retryDelay[\"':\s]+(\d+(?:\.\d+)?)s")
+# エラーメッセージがGoogle側の判断で日本語化されて返ってくることがあるため、
+# 英語・日本語どちらのキーワードも見る(実例: "このモデルは現在高い需要を抱えています")。
 _RATE_LIMIT_MARKERS = ("429", "RESOURCE_EXHAUSTED")
-_OVERLOAD_MARKERS = ("503", "UNAVAILABLE", "overloaded", "high demand")
+_OVERLOAD_MARKERS = (
+    "503", "UNAVAILABLE", "overloaded", "high demand",
+    "高い需要", "過負荷", "混雑",
+)
 
 
 def _client() -> genai.Client:
@@ -46,14 +51,27 @@ def _client() -> genai.Client:
     return _client_instance
 
 
-def _retry_wait_seconds(error_text: str) -> float | None:
+def _error_status_code(e: Exception) -> int | None:
+    """例外オブジェクトからHTTPステータスコードを取り出す(メッセージの言語に依存しない判定用)。"""
+    for attr in ("code", "status_code"):
+        val = getattr(e, attr, None)
+        if isinstance(val, int):
+            return val
+    resp = getattr(e, "response", None)
+    val = getattr(resp, "status_code", None)
+    return val if isinstance(val, int) else None
+
+
+def _retry_wait_seconds(e: Exception) -> float | None:
     """リトライすべきエラーなら待機秒数を、リトライ対象外ならNoneを返す。"""
-    m = _RETRY_DELAY_RE.search(error_text)
+    text = str(e)
+    m = _RETRY_DELAY_RE.search(text)
     if m:
         return float(m.group(1))
-    if any(marker in error_text for marker in _OVERLOAD_MARKERS):
+    status = _error_status_code(e)
+    if status == 503 or any(marker in text for marker in _OVERLOAD_MARKERS):
         return _OVERLOAD_BACKOFF_SECONDS
-    if any(marker in error_text for marker in _RATE_LIMIT_MARKERS):
+    if status == 429 or any(marker in text for marker in _RATE_LIMIT_MARKERS):
         return _DEFAULT_BACKOFF_SECONDS
     return None
 
@@ -70,11 +88,14 @@ def _generate(system: str, prompt: str, max_output_tokens: int, json_output: boo
             resp = _client().models.generate_content(model=_MODEL, contents=prompt, config=config)
             return (resp.text or "").strip()
         except Exception as e:
-            text = str(e)
-            wait = _retry_wait_seconds(text)
-            if wait is None or attempt == _MAX_RETRIES:
+            wait = _retry_wait_seconds(e)
+            if wait is None:
+                log(f"[Gemini] non-retryable error ({type(e).__name__}): {str(e)[:300]}")
                 raise
-            log(f"[Gemini] retryable error (attempt {attempt}/{_MAX_RETRIES}), waiting {wait:.0f}s: {text[:200]}")
+            if attempt == _MAX_RETRIES:
+                log(f"[Gemini] giving up after {_MAX_RETRIES} attempts: {str(e)[:300]}")
+                raise
+            log(f"[Gemini] retryable error (attempt {attempt}/{_MAX_RETRIES}), waiting {wait:.0f}s: {str(e)[:200]}")
             time.sleep(wait)
     raise RuntimeError("unreachable")  # pragma: no cover
 

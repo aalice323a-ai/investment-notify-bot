@@ -28,9 +28,14 @@ _client_instance: genai.Client | None = None
 
 # 無料枠は1分あたりのリクエスト数が非常に少ない(モデルによっては5RPM程度)ため、
 # 429(RESOURCE_EXHAUSTED)時はサーバー指定の待機時間(retryDelay)に従ってリトライする。
+# 503(UNAVAILABLE/モデル過負荷)は待機時間がレスポンスに含まれないことが多いため、
+# 固定60秒待ってリトライする。いずれも初回+最大3回リトライ(計4試行)。
 _MAX_RETRIES = 4
 _DEFAULT_BACKOFF_SECONDS = 20.0
+_OVERLOAD_BACKOFF_SECONDS = 60.0
 _RETRY_DELAY_RE = re.compile(r"retryDelay[\"':\s]+(\d+(?:\.\d+)?)s")
+_RATE_LIMIT_MARKERS = ("429", "RESOURCE_EXHAUSTED")
+_OVERLOAD_MARKERS = ("503", "UNAVAILABLE", "overloaded", "high demand")
 
 
 def _client() -> genai.Client:
@@ -41,9 +46,16 @@ def _client() -> genai.Client:
     return _client_instance
 
 
-def _extract_retry_delay(error_text: str) -> float:
+def _retry_wait_seconds(error_text: str) -> float | None:
+    """リトライすべきエラーなら待機秒数を、リトライ対象外ならNoneを返す。"""
     m = _RETRY_DELAY_RE.search(error_text)
-    return float(m.group(1)) if m else _DEFAULT_BACKOFF_SECONDS
+    if m:
+        return float(m.group(1))
+    if any(marker in error_text for marker in _OVERLOAD_MARKERS):
+        return _OVERLOAD_BACKOFF_SECONDS
+    if any(marker in error_text for marker in _RATE_LIMIT_MARKERS):
+        return _DEFAULT_BACKOFF_SECONDS
+    return None
 
 
 def _generate(system: str, prompt: str, max_output_tokens: int, json_output: bool = False) -> str:
@@ -59,11 +71,10 @@ def _generate(system: str, prompt: str, max_output_tokens: int, json_output: boo
             return (resp.text or "").strip()
         except Exception as e:
             text = str(e)
-            is_rate_limited = "429" in text or "RESOURCE_EXHAUSTED" in text
-            if not is_rate_limited or attempt == _MAX_RETRIES:
+            wait = _retry_wait_seconds(text)
+            if wait is None or attempt == _MAX_RETRIES:
                 raise
-            wait = _extract_retry_delay(text)
-            log(f"[Gemini] 429 rate limited (attempt {attempt}/{_MAX_RETRIES}), waiting {wait:.0f}s")
+            log(f"[Gemini] retryable error (attempt {attempt}/{_MAX_RETRIES}), waiting {wait:.0f}s: {text[:200]}")
             time.sleep(wait)
     raise RuntimeError("unreachable")  # pragma: no cover
 
@@ -186,6 +197,10 @@ def compose_report(facts: dict) -> str:
             "最低1つ明記した上で、レポート全文を再生成してください。"
         )
         text = _generate(_REPORT_SYSTEM, payload + reminder, max_output_tokens=3000)
+    if not text.strip():
+        # 空文字のままLINEに送るとメッセージオブジェクトが不正になり400になるため、
+        # ここで明示的に失敗扱いにする(呼び出し側の固定フォールバック文言に委ねる)。
+        raise RuntimeError("Geminiが空のレポート本文を返しました")
     return text
 
 

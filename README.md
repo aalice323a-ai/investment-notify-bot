@@ -44,6 +44,8 @@ channelIdの調べ方: チャンネルページ(`https://www.youtube.com/@handle
 
 GitHubの `Actions` タブから各ワークフローを `Run workflow`(手動実行)で動かし、LINEにメッセージが届くか確認してください。
 
+`Test LINE Send (manual)` は株価取得・YouTube・Gemini要約に一切依存せず、LINE Messaging APIへの送信だけを検証する最小限のワークフローです(`LINE_CHANNEL_ACCESS_TOKEN`/`LINE_USER_ID`の2つのSecretsのみで動きます)。LINE送信そのものが疑わしい場合は、まずこれを実行して切り分けてください。
+
 ローカルで確認する場合は、上記3つの環境変数をセットした上で:
 
 ```bash

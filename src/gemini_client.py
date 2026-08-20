@@ -1,8 +1,9 @@
 """Google Gemini API ラッパー: 動画判定・乖離率の定性判定・レポート合成。
 
-GEMINI_API_KEY は環境変数からのみ取得する。無料枠(Gemini Flash系モデル)で
-収まる想定の呼び出し頻度(動画要約1本ごと・乖離判定は銘柄ごと・レポート生成は
-セッションごとに1〜2回)としている。
+GEMINI_API_KEY は環境変数からのみ取得する。無料枠(Gemini Flash系モデル)の
+呼び出し回数を抑えるため、動画要約・週足乖離率判定はいずれも対象を1回の
+API呼び出しにまとめて送る(件数分だけ呼び出さない)。1セッションあたりの
+呼び出し回数は概ね、動画判定1回+乖離率判定1回+レポート生成1〜2回。
 
 モデル名はAPIの世代交代が早いため環境変数 GEMINI_MODEL で上書き可能にしてある。
 既定値がエラーになる場合は https://ai.google.dev/gemini-api/docs/models で
@@ -63,8 +64,14 @@ def _error_status_code(e: Exception) -> int | None:
 
 
 def _retry_wait_seconds(e: Exception) -> float | None:
-    """リトライすべきエラーなら待機秒数を、リトライ対象外ならNoneを返す。"""
+    """リトライすべきエラーなら待機秒数を、リトライ対象外ならNoneを返す。
+
+    日次クォータ(PerDay)超過は数十秒待っても解消しないため、
+    無駄なリトライはせず早期に失敗させる。
+    """
     text = str(e)
+    if "PerDay" in text or "per day" in text.lower():
+        return None
     m = _RETRY_DELAY_RE.search(text)
     if m:
         return float(m.group(1))
@@ -101,11 +108,11 @@ def _generate(system: str, prompt: str, max_output_tokens: int, json_output: boo
 
 
 # ---------------------------------------------------------------------------
-# ① YouTube動画の採用判定・要約
+# ① YouTube動画の採用判定・要約(新着動画をまとめて1回のAPI呼び出しで判定する)
 # ---------------------------------------------------------------------------
 
-_JUDGE_SYSTEM = """あなたは株式投資家向けのアナリストです。YouTube動画の字幕を読み、
-保有銘柄・監視銘柄に関連する投資判断材料として動画を採用すべきか判定してください。
+_JUDGE_BATCH_SYSTEM = """あなたは株式投資家向けのアナリストです。複数のYouTube動画の字幕(抜粋)を読み、
+それぞれについて、保有銘柄・監視銘柄に関連する投資判断材料として採用すべきか動画ごとに判定してください。
 
 【採用基準(優先順位順)】
 1. AI・半導体産業の構造変化に関する内容
@@ -118,19 +125,39 @@ _JUDGE_SYSTEM = """あなたは株式投資家向けのアナリストです。Y
 チャートの話題を含む場合でも、業績との整合性(ファンダメンタルズとの整合)が
 語られていなければ採用基準を満たさないと判断すること。
 
-出力は必ず以下のJSON形式のみで返すこと:
-{"relevant": true または false, "reason": "採用/除外の理由(1文)", "summary": "採用時のみ:保有銘柄・監視銘柄への影響を中心とした要約(150字程度)"}
-"""
+出力は必ず次のJSON形式のみで返すこと(動画IDをキーとする):
+{"<動画ID>": {"relevant": true または false, "reason": "採用/除外の理由(1文)", "summary": "採用時のみ:保有銘柄・監視銘柄への影響を中心とした要約(150字程度)"}, ...}
+入力に含まれる全ての動画IDを必ずキーとして含めること。"""
 
 
-def judge_video(title: str, transcript: str, target_names: list[str]) -> dict:
+def judge_videos_batch(videos: list[dict], target_names: list[str]) -> dict[str, dict]:
+    """複数動画の採用判定・要約を1回のAPI呼び出しでまとめて取得する。
+
+    videos: [{"video_id", "title", "transcript"}, ...]
+    戻り値: {video_id: {"relevant", "reason", "summary"}, ...}(失敗時は空dict)
+    """
+    if not videos:
+        return {}
+    items = [
+        {
+            "video_id": v["video_id"],
+            "title": v["title"],
+            # 動画本数分プロンプトが膨らむため、単体判定時(12000字)より短く切り詰める
+            "transcript_excerpt": v["transcript"][:6000],
+        }
+        for v in videos
+    ]
     prompt = (
-        f"動画タイトル: {title}\n"
         f"保有・監視対象銘柄: {', '.join(target_names)}\n\n"
-        f"字幕(先頭12000字):\n{transcript[:12000]}"
+        f"動画一覧(JSON):\n{json.dumps(items, ensure_ascii=False, indent=2)}"
     )
-    text = _generate(_JUDGE_SYSTEM, prompt, max_output_tokens=600, json_output=True)
-    return _parse_json(text)
+    max_tokens = min(400 * len(videos) + 200, 6000)
+    text = _generate(_JUDGE_BATCH_SYSTEM, prompt, max_output_tokens=max_tokens, json_output=True)
+    try:
+        return _parse_json(text)
+    except json.JSONDecodeError:
+        log(f"[Gemini] failed to parse batched video judgement response: {text[:200]}")
+        return {}
 
 
 def _parse_json(text: str) -> dict:

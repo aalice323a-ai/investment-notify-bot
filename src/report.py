@@ -51,6 +51,7 @@ def collect_video_facts(target_names: list[str]) -> tuple[list[dict], dict[str, 
     log(f"[YouTube] {len(channels)} channel(s) registered in data/channels.json")
     state = load_processed_videos()
     summaries: list[dict] = []
+    pending: list[dict] = []  # 判定待ちの新着動画(全チャンネル分をまとめて後で1回のAPI呼び出しにする)
 
     for channel in channels:
         channel_id = channel["channel_id"]
@@ -75,19 +76,32 @@ def collect_video_facts(target_names: list[str]) -> tuple[list[dict], dict[str, 
                 log(f"[YouTube] no transcript available for {video.video_id}, skipping")
                 continue
 
-            try:
-                judgement = gemini_client.judge_video(video.title, transcript, target_names)
-            except Exception as e:
-                log(f"[YouTube] ERROR judging video {video.video_id}: {type(e).__name__}: {e}")
-                line_client.notify_failure(f"動画『{video.title}』の要約", str(e))
-                continue
+            pending.append(
+                {
+                    "video_id": video.video_id,
+                    "title": video.title,
+                    "url": video.url,
+                    "transcript": transcript,
+                }
+            )
 
-            log(f"[YouTube] {video.video_id} relevant={judgement.get('relevant')}")
+    if pending:
+        log(f"[YouTube] requesting batched judgement for {len(pending)} video(s)")
+        try:
+            judgements = gemini_client.judge_videos_batch(pending, target_names)
+        except Exception as e:
+            log(f"[YouTube] ERROR batched video judgement: {type(e).__name__}: {e}")
+            line_client.notify_failure("動画要約(一括)", str(e))
+            judgements = {}
+
+        for video in pending:
+            judgement = judgements.get(video["video_id"], {})
+            log(f"[YouTube] {video['video_id']} relevant={judgement.get('relevant')}")
             if judgement.get("relevant"):
                 summaries.append(
                     {
-                        "title": video.title,
-                        "url": video.url,
+                        "title": video["title"],
+                        "url": video["url"],
                         "summary": judgement.get("summary", ""),
                     }
                 )

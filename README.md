@@ -42,7 +42,7 @@ channelIdの調べ方: チャンネルページ(`https://www.youtube.com/@handle
 
 ### 4. 動作確認
 
-GitHubの `Actions` タブから各ワークフローを `Run workflow`(手動実行)で動かし、LINEにメッセージが届くか確認してください。全部で4つのワークフローがあります:
+GitHubの `Actions` タブから各ワークフローを `Run workflow`(手動実行)で動かし、LINEにメッセージが届くか確認してください。全部で5つのワークフローがあります:
 
 | ワークフロー | 用途 |
 |---|---|
@@ -50,6 +50,7 @@ GitHubの `Actions` タブから各ワークフローを `Run workflow`(手動�
 | `US Session (7:00 JST)` | 米国株パート本番(cron + 手動実行) |
 | `Test LINE Send (manual)` | 株価取得・YouTube・Claude要約に一切依存せず、LINE Messaging APIへの送信だけを検証する最小限のワークフロー(`LINE_CHANNEL_ACCESS_TOKEN`/`LINE_USER_ID`のみで動作)。LINE送信そのものが疑わしい場合はまずこれを実行して切り分ける |
 | `Update Holdings (manual)` | 保有銘柄リストの更新(詳細は次項) |
+| `Update Watchlist (manual)` | 監視銘柄リストの更新(詳細は次項) |
 
 ローカルで確認する場合は、上記3つの環境変数をセットした上で:
 
@@ -77,9 +78,20 @@ python src/main_us.py
 
 `data/holdings.json` を直接編集しても構いません。`config/holdings.py` は単にこのJSONを読み込むローダーです。
 
-### 監視銘柄(`config/watchlist.py`)
+### 監視銘柄(`data/watchlist.json`)
 
-こちらは今回の更新対象外のため、引き続き `config/watchlist.py` を直接編集してください。
+保有銘柄と同じ仕組みです。**`Update Watchlist (manual)` ワークフローをブラウザから手動実行し、テキスト入力欄に監視銘柄リストを貼り付けることで更新**します。
+
+1. `Actions` タブ → `Update Watchlist (manual)` → `Run workflow`
+2. `watchlist_text` の入力欄に、1行1銘柄で以下の形式で貼り付ける(この内容で **リスト全体を置き換え** ます。部分更新ではありません):
+   ```
+   8035,東京エレクトロン,JP
+   NVDA,NVIDIA,US
+   ```
+   `コード,名称,市場(JP/US)`。監視銘柄には長期配当保有の概念が無いため、保有銘柄と違って `dividend_hold` フィールドはありません(常に3フィールド)。
+3. 実行すると `data/watchlist.json` がコミットされ、更新結果(銘柄数・一覧)がLINEに届きます。1行でも形式が不正な場合は更新を行わずエラー通知します。
+
+`data/watchlist.json` を直接編集しても構いません。`config/watchlist.py` は単にこのJSONを読み込むローダーです。
 
 ## 運用上の注意
 

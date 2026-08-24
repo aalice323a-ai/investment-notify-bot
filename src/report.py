@@ -12,12 +12,9 @@ from src.log import log
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = REPO_ROOT / "state" / "processed_videos.json"
 CHANNELS_PATH = REPO_ROOT / "data" / "channels.json"
-CHARTS_ROOT = REPO_ROOT / "charts"
 
 # 前日比この%以上、または出来高が過去20日平均の2倍以上で「値動きが目立った銘柄」とみなす
 MOVE_ALERT_PCT = 3.0
-# 週足乖離率の過去分布percentileがこの値以上なら「過熱懸念」候補としてチャート画像を送る対象にする
-OVERHEAT_PERCENTILE = 90.0
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +108,7 @@ def collect_video_facts(target_names: list[str]) -> tuple[list[dict], dict[str, 
 
 
 # ---------------------------------------------------------------------------
-# ② 株価・出来高・チャート情報
+# ② 株価・出来高情報
 # ---------------------------------------------------------------------------
 
 def _merge_targets(holdings: list[Holding], watchlist: list[Holding]) -> dict[str, dict]:
@@ -126,13 +123,10 @@ def _merge_targets(holdings: list[Holding], watchlist: list[Holding]) -> dict[st
     return merged
 
 
-def collect_ticker_facts(
-    holdings: list[Holding], watchlist: list[Holding], chart_dir: Path
-) -> tuple[list[dict], list[Path]]:
+def collect_ticker_facts(holdings: list[Holding], watchlist: list[Holding]) -> list[dict]:
     merged = _merge_targets(holdings, watchlist)
     log(f"[Stocks] start: {len(merged)} ticker(s) to process")
     facts: list[dict] = []
-    chart_paths: list[Path] = []
     deviation_items: list[dict] = []  # 週足乖離率判定を後でまとめて1回のAPI呼び出しにするため蓄積
 
     for roles in merged.values():
@@ -146,9 +140,6 @@ def collect_ticker_facts(
             continue
 
         is_mover = snap.volume_alert or abs(snap.change_pct) >= MOVE_ALERT_PCT
-        is_overheat_candidate = (
-            snap.dev25w_percentile is not None and snap.dev25w_percentile >= OVERHEAT_PERCENTILE
-        )
 
         entry: dict = {
             "code": snap.code,
@@ -170,20 +161,8 @@ def collect_ticker_facts(
         log(
             f"[Stocks] {ref.name}: close={entry['close']} change_pct={entry['change_pct']} "
             f"volume_ratio={entry['volume_ratio_vs_20d_avg']} volume_alert={entry['volume_alert']} "
-            f"trend={entry['trend']} is_mover={is_mover} is_overheat_candidate={is_overheat_candidate}"
+            f"trend={entry['trend']} is_mover={is_mover}"
         )
-
-        # 値動きが目立った銘柄・過熱懸念候補のみチャート画像を生成(LINE無料枠を圧迫しないため)
-        if is_mover or is_overheat_candidate:
-            log(f"[Stocks] {ref.name}: rendering charts")
-            try:
-                stocks.render_charts(snap, chart_dir)
-                for p in (snap.daily_chart_path, snap.weekly_chart_path):
-                    if p:
-                        chart_paths.append(p)
-            except Exception as e:
-                log(f"[Stocks] ERROR rendering charts for {ref.name}: {type(e).__name__}: {e}")
-                line_client.notify_failure(f"{ref.name}のチャート生成", str(e))
 
         if snap.dev25w_pct is not None:
             deviation_items.append(
@@ -212,8 +191,8 @@ def collect_ticker_facts(
             log(f"[Stocks] ERROR batched deviation judgement: {type(e).__name__}: {e}")
             line_client.notify_failure("週足乖離率判定(一括)", str(e))
 
-    log(f"[Stocks] done: {len(facts)} ticker(s) processed, {len(chart_paths)} chart image(s)")
-    return facts, chart_paths
+    log(f"[Stocks] done: {len(facts)} ticker(s) processed")
+    return facts
 
 
 # ---------------------------------------------------------------------------
@@ -227,14 +206,11 @@ def collect_macro_events(today: dt.date) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# 画像・状態の永続化
+# 状態の永続化
 # ---------------------------------------------------------------------------
 
-def publish_charts_and_state(chart_paths: list[Path]) -> list[str]:
-    """chart_pathsとstateファイルをコミット・pushし、画像のraw URL一覧を返す。"""
-    log(f"[GitPublish] committing {len(chart_paths)} chart(s) + state file")
-    paths = list(chart_paths) + [STATE_PATH]
-    git_publish.commit_and_push(paths, f"chore: update charts/state ({dt.date.today().isoformat()})")
-    urls = [git_publish.raw_url(p) for p in chart_paths]
-    log(f"[GitPublish] done: {len(urls)} image URL(s)")
-    return urls
+def publish_state() -> None:
+    """処理済みYouTube動画IDのstateファイルをコミット・pushする。"""
+    log("[GitPublish] committing state file")
+    git_publish.commit_and_push([STATE_PATH], f"chore: update state ({dt.date.today().isoformat()})")
+    log("[GitPublish] done")

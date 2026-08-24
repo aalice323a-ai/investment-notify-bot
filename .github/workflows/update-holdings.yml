@@ -1,0 +1,35 @@
+name: Update Holdings (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      holdings_text:
+        description: >
+          保有銘柄リスト全体。1行1銘柄、"コード,名称,市場(JP/US)[,dividend_hold]" 形式で貼り付けてください。
+          例: 2802,味の素,JP / 8001,伊藤忠商事,JP,dividend_hold / AMD,AMD,US
+          この内容で data/holdings.json を全件置き換えます(部分更新ではありません)。
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies (requests only)
+        run: pip install requests
+
+      - name: Update holdings
+        env:
+          HOLDINGS_TEXT: ${{ github.event.inputs.holdings_text }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python src/update_holdings.py

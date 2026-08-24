@@ -26,12 +26,11 @@ def main() -> None:
         return  # 東証休場日はスキップ
     log("today IS a JPX trading day -> proceeding")
 
-    chart_dir = report.CHARTS_ROOT / today.isoformat() / "jp"
     # YouTube動画の判定は保有・監視銘柄全体(日本株+米国株)を対象にする
     all_names = [h.name for h in JP_HOLDINGS + US_HOLDINGS + JP_WATCHLIST + US_WATCHLIST]
 
     video_summaries, video_state = report.collect_video_facts(all_names)
-    ticker_facts, chart_paths = report.collect_ticker_facts(JP_HOLDINGS, JP_WATCHLIST, chart_dir)
+    ticker_facts = report.collect_ticker_facts(JP_HOLDINGS, JP_WATCHLIST)
     macro_events = report.collect_macro_events(today)
 
     report.save_processed_videos(video_state)
@@ -45,12 +44,11 @@ def main() -> None:
         "macro_events": macro_events,
     }
 
-    image_urls: list[str] = []
     try:
-        image_urls = report.publish_charts_and_state(chart_paths)
+        report.publish_state()
     except Exception as e:
-        log(f"ERROR publishing charts/state: {type(e).__name__}: {e}")
-        line_client.notify_failure("チャート画像のアップロード", str(e))
+        log(f"ERROR publishing state: {type(e).__name__}: {e}")
+        line_client.notify_failure("状態ファイルのアップロード", str(e))
 
     log("requesting report composition from Claude")
     try:
@@ -61,8 +59,8 @@ def main() -> None:
         line_client.notify_failure("レポート生成", str(e))
         text = "本日のレポート生成に失敗しました。個別の失敗通知をご確認ください。"
 
-    log(f"pushing report to LINE ({len(image_urls)} image(s))")
-    line_client.push_report(text, image_urls)
+    log("pushing report to LINE")
+    line_client.push_report(text)
     log("=== JP session end ===")
 
 

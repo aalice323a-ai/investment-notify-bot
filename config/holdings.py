@@ -1,9 +1,17 @@
-"""保有銘柄・監視対象の銘柄マスタ定義。
+"""保有銘柄マスタ定義。data/holdings.json を読み込む。
 
 銘柄の追加・削除・dividend_hold(長期配当目的保有=買い増し/売却判定対象外)の
-変更は、このファイルを直接編集してください。
+変更は、GitHub Actionsの `Update Holdings (manual)` ワークフロー
+(workflow_dispatch、LINEを経由せずリスト全体をテキストで貼り替える方式)
+から行うか、data/holdings.json を直接編集してください。
 """
+from __future__ import annotations
+
+import json
 from dataclasses import dataclass
+from pathlib import Path
+
+_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "holdings.json"
 
 
 @dataclass(frozen=True)
@@ -19,37 +27,22 @@ class Holding:
         return f"{self.code}.T" if self.market == "JP" else self.code
 
 
-JP_HOLDINGS: list[Holding] = [
-    Holding("2802", "味の素", "JP"),
-    Holding("285A", "キオクシアHD", "JP"),
-    Holding("3110", "日東紡績", "JP"),
-    Holding("4980", "デクセリアルズ", "JP"),
-    Holding("5020", "ENEOS", "JP"),
-    Holding("5243", "NOTE", "JP"),
-    Holding("5401", "日本製鉄", "JP"),
-    Holding("5802", "住友電工", "JP"),
-    Holding("5803", "フジクラ", "JP"),
-    Holding("5985", "サンコール", "JP"),
-    Holding("6479", "ミネベアミツミ", "JP"),
-    Holding("6701", "日本電気(NEC)", "JP"),
-    Holding("6758", "ソニーグループ", "JP"),
-    Holding("6762", "TDK", "JP"),
-    Holding("7011", "三菱重工業", "JP"),
-    Holding("7013", "IHI", "JP"),
-    Holding("8001", "伊藤忠商事", "JP", dividend_hold=True),
-    Holding("8058", "三菱商事", "JP", dividend_hold=True),
-    Holding("8306", "三菱UFJフィナンシャル・グループ", "JP", dividend_hold=True),
-    Holding("8316", "三井住友フィナンシャルグループ", "JP", dividend_hold=True),
-    Holding("8591", "オリックス", "JP", dividend_hold=True),
-    Holding("9432", "NTT", "JP", dividend_hold=True),
-]
+def _load() -> list[Holding]:
+    records = json.loads(_DATA_PATH.read_text(encoding="utf-8"))
+    return [
+        Holding(
+            code=r["code"],
+            name=r["name"],
+            market=r["market"],
+            dividend_hold=bool(r.get("dividend_hold", False)),
+        )
+        for r in records
+    ]
 
-US_HOLDINGS: list[Holding] = [
-    Holding("AMD", "AMD", "US"),
-    Holding("AVGO", "ブロードコム", "US"),
-    Holding("GOOG", "アルファベット", "US"),
-    Holding("TSM", "台湾セミコンダクター(TSMC)", "US"),
-]
+
+_ALL: list[Holding] = _load()
+JP_HOLDINGS: list[Holding] = [h for h in _ALL if h.market == "JP"]
+US_HOLDINGS: list[Holding] = [h for h in _ALL if h.market == "US"]
 
 
 def all_holdings() -> list[Holding]:

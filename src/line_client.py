@@ -54,18 +54,14 @@ def _send(messages: list[dict]) -> None:
         resp.raise_for_status()
 
 
-def push_report(text: str, image_urls: list[str] | None = None) -> None:
-    """レポート本文(必要なら分割)とチャート画像をまとめて送信する。"""
-    messages: list[dict] = []
-    if text.strip():
-        messages.extend({"type": "text", "text": chunk} for chunk in _chunk_text(text))
-    for url in image_urls or []:
-        messages.append({"type": "image", "originalContentUrl": url, "previewImageUrl": url})
-    if messages:
-        log(f"[LINE] sending {len(messages)} message object(s)")
-        _send(messages)
-    else:
-        log("[LINE] nothing to send (empty text and no images)")
+def push_report(text: str) -> None:
+    """レポート本文を(必要なら分割して)送信する。"""
+    if not text.strip():
+        log("[LINE] nothing to send (empty text)")
+        return
+    messages = [{"type": "text", "text": chunk} for chunk in _chunk_text(text)]
+    log(f"[LINE] sending {len(messages)} message object(s)")
+    _send(messages)
 
 
 def notify_failure(component: str, error: str) -> None:

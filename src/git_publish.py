@@ -1,12 +1,11 @@
-"""charts/ と state/ の変更をリポジトリへコミット・pushし、
-raw.githubusercontent.com のURLを組み立てるヘルパー。
+"""state/(処理済みYouTube動画ID・保有銘柄リスト等)の変更をリポジトリへ
+コミット・pushするヘルパー。
 
-GitHub Actions上での実行を前提とする(GITHUB_REPOSITORY / GITHUB_REF_NAME を利用)。
+GitHub Actions上での実行を前提とする。
 push権限は workflow の `permissions: contents: write` + 既定の GITHUB_TOKEN による。
 """
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -38,15 +37,3 @@ def commit_and_push(paths: list[Path], message: str) -> None:
     _run("git", "commit", "-m", message)
     _run("git", "push")
     log("[GitPublish] commit + push complete")
-
-
-def raw_url(path: Path) -> str:
-    """pushしたファイルの raw.githubusercontent.com URL を組み立てる(push完了後に呼ぶこと)。"""
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if not repo:
-        raise RuntimeError(
-            "GITHUB_REPOSITORY が未設定です(GitHub Actions外では画像URLを生成できません)"
-        )
-    branch = os.environ.get("GITHUB_REF_NAME", "main")
-    rel = path.relative_to(REPO_ROOT) if path.is_absolute() else path
-    return f"https://raw.githubusercontent.com/{repo}/{branch}/{rel.as_posix()}"

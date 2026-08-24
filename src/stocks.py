@@ -1,4 +1,4 @@
-"""yfinanceを用いた株価・出来高取得、チャート生成、週足乖離率の計算。
+"""yfinanceを用いた株価・出来高取得、週足乖離率の計算。
 
 「健全な乖離」か「過熱懸念」かといった定性判定はここでは行わず、
 数値(乖離率・過去分布上の位置・トレンド傾き)の算出までに留める。
@@ -7,19 +7,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
-
-# チャート内の日本語ラベルが文字化けしないよう、CJK対応フォントを指定する
-# (GitHub Actions側で `fonts-noto-cjk` パッケージのインストールが必要。README参照)
-plt.rcParams["font.sans-serif"] = ["Noto Sans CJK JP", "IPAexGothic", "sans-serif"]
-plt.rcParams["axes.unicode_minus"] = False
 
 VOLUME_ALERT_RATIO = 2.0
 
@@ -43,8 +33,6 @@ class TickerSnapshot:
     dev75w_pct: float | None
     dev25w_percentile: float | None
     ma25w_slope_pct: float | None
-    daily_chart_path: Path | None = None
-    weekly_chart_path: Path | None = None
 
 
 def _trend_from_daily(df: pd.DataFrame) -> str:
@@ -62,7 +50,7 @@ def _trend_from_daily(df: pd.DataFrame) -> str:
 
 
 def fetch_snapshot(code: str, name: str, yf_ticker: str) -> TickerSnapshot:
-    """株価・出来高・乖離率スナップショットを取得する(チャート画像は別途生成)。"""
+    """株価・出来高・乖離率スナップショットを取得する。"""
     ticker = yf.Ticker(yf_ticker)
     daily = ticker.history(period="6mo", interval="1d")
     weekly = ticker.history(period="3y", interval="1wk")
@@ -115,49 +103,3 @@ def fetch_snapshot(code: str, name: str, yf_ticker: str) -> TickerSnapshot:
         dev25w_percentile=dev25w_pctl,
         ma25w_slope_pct=ma25w_slope,
     )
-
-
-def render_charts(snapshot: TickerSnapshot, chart_dir: Path) -> None:
-    """アラート対象銘柄のみ呼び出す想定(LINE無料メッセージ枠を圧迫しないため)。"""
-    chart_dir.mkdir(parents=True, exist_ok=True)
-    ticker = yf.Ticker(snapshot.yf_ticker)
-    daily = ticker.history(period="6mo", interval="1d")
-    weekly = ticker.history(period="3y", interval="1wk")
-    snapshot.daily_chart_path = _render_daily_chart(snapshot, daily, chart_dir)
-    if not weekly.empty:
-        snapshot.weekly_chart_path = _render_weekly_chart(snapshot, weekly, chart_dir)
-
-
-def _render_daily_chart(snapshot: TickerSnapshot, df: pd.DataFrame, chart_dir: Path) -> Path:
-    fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(7, 5), sharex=True, gridspec_kw={"height_ratios": [3, 1]}
-    )
-    df["Close"].plot(ax=ax1, color="#1f77b4", label="終値")
-    df["Close"].rolling(5).mean().plot(ax=ax1, color="#ff7f0e", linewidth=1, label="5日MA")
-    df["Close"].rolling(25).mean().plot(ax=ax1, color="#2ca02c", linewidth=1, label="25日MA")
-    ax1.set_title(f"{snapshot.name} ({snapshot.code}) 日足")
-    ax1.legend(fontsize=8)
-    ax1.grid(alpha=0.3)
-    ax2.bar(df.index, df["Volume"], color="#888888", width=0.8)
-    ax2.set_ylabel("出来高", fontsize=8)
-    ax2.grid(alpha=0.3)
-    fig.tight_layout()
-    path = chart_dir / f"{snapshot.code}_daily.png"
-    fig.savefig(path, dpi=100)
-    plt.close(fig)
-    return path
-
-
-def _render_weekly_chart(snapshot: TickerSnapshot, df: pd.DataFrame, chart_dir: Path) -> Path:
-    fig, ax = plt.subplots(figsize=(7, 4))
-    df["Close"].plot(ax=ax, color="#1f77b4", label="終値")
-    df["Close"].rolling(25).mean().plot(ax=ax, color="#ff7f0e", linewidth=1, label="25週MA")
-    df["Close"].rolling(75).mean().plot(ax=ax, color="#d62728", linewidth=1, label="75週MA")
-    ax.set_title(f"{snapshot.name} ({snapshot.code}) 週足")
-    ax.legend(fontsize=8)
-    ax.grid(alpha=0.3)
-    fig.tight_layout()
-    path = chart_dir / f"{snapshot.code}_weekly.png"
-    fig.savefig(path, dpi=100)
-    plt.close(fig)
-    return path

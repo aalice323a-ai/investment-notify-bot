@@ -28,8 +28,7 @@ def main() -> None:
         return  # 米国市場休場日はスキップ
     log("us_session_date IS a US trading day -> proceeding")
 
-    chart_dir = report.CHARTS_ROOT / today_jst.isoformat() / "us"
-    ticker_facts, chart_paths = report.collect_ticker_facts(US_HOLDINGS, US_WATCHLIST, chart_dir)
+    ticker_facts = report.collect_ticker_facts(US_HOLDINGS, US_WATCHLIST)
     macro_events = report.collect_macro_events(today_jst)
 
     facts = {
@@ -40,13 +39,6 @@ def main() -> None:
         "macro_events": macro_events,
     }
 
-    image_urls: list[str] = []
-    try:
-        image_urls = report.publish_charts_and_state(chart_paths)
-    except Exception as e:
-        log(f"ERROR publishing charts/state: {type(e).__name__}: {e}")
-        line_client.notify_failure("チャート画像のアップロード", str(e))
-
     log("requesting report composition from Claude")
     try:
         text = claude_client.compose_report(facts)
@@ -56,8 +48,8 @@ def main() -> None:
         line_client.notify_failure("レポート生成", str(e))
         text = "本日のレポート生成に失敗しました。個別の失敗通知をご確認ください。"
 
-    log(f"pushing report to LINE ({len(image_urls)} image(s))")
-    line_client.push_report(text, image_urls)
+    log("pushing report to LINE")
+    line_client.push_report(text)
     log("=== US session end ===")
 
 

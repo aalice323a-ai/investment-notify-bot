@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.holdings import JP_HOLDINGS, US_HOLDINGS
 from config.watchlist import JP_WATCHLIST, US_WATCHLIST
-from src import gemini_client, line_client, market_calendar, report
+from src import claude_client, line_client, market_calendar, report
 from src.log import log
 
 JST = dt.timezone(dt.timedelta(hours=9))
@@ -52,9 +52,9 @@ def main() -> None:
         log(f"ERROR publishing charts/state: {type(e).__name__}: {e}")
         line_client.notify_failure("チャート画像のアップロード", str(e))
 
-    log("requesting report composition from Gemini")
+    log("requesting report composition from Claude")
     try:
-        text = gemini_client.compose_report(facts)
+        text = claude_client.compose_report(facts)
         log(f"report composed: {len(text)} character(s)")
     except Exception as e:
         log(f"ERROR composing report: {type(e).__name__}: {e}")

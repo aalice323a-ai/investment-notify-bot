@@ -1,6 +1,6 @@
 """LINE送信機能のみを単体で検証するための最小スクリプト。
 
-株価取得・YouTube・Gemini要約など、他の機能には一切依存しない。
+株価取得・YouTube・Claude要約など、他の機能には一切依存しない。
 本番と同じ line_client.push_report() を使い、LINE Messaging API
 そのものが正常に呼び出せるかどうかだけを確認する。
 """

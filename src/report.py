@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from config.holdings import Holding
-from src import gemini_client, git_publish, line_client, macro_calendar, stocks, youtube
+from src import claude_client, git_publish, line_client, macro_calendar, stocks, youtube
 from src.log import log
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -88,7 +88,7 @@ def collect_video_facts(target_names: list[str]) -> tuple[list[dict], dict[str, 
     if pending:
         log(f"[YouTube] requesting batched judgement for {len(pending)} video(s)")
         try:
-            judgements = gemini_client.judge_videos_batch(pending, target_names)
+            judgements = claude_client.judge_videos_batch(pending, target_names)
         except Exception as e:
             log(f"[YouTube] ERROR batched video judgement: {type(e).__name__}: {e}")
             line_client.notify_failure("動画要約(一括)", str(e))
@@ -203,7 +203,7 @@ def collect_ticker_facts(
     if deviation_items:
         log(f"[Stocks] requesting batched deviation judgement for {len(deviation_items)} ticker(s)")
         try:
-            judgements = gemini_client.classify_deviations_batch(deviation_items)
+            judgements = claude_client.classify_deviations_batch(deviation_items)
             for entry in facts:
                 if entry["code"] in judgements:
                     entry["deviation_judgement"] = judgements[entry["code"]]

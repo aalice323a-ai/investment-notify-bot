@@ -24,7 +24,7 @@
 |---|---|
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging APIのチャネルアクセストークン |
 | `LINE_USER_ID` | 通知先のLINEユーザーID |
-| `GEMINI_API_KEY` | Google Gemini APIキー(要約・判定・レポート生成に使用。無料枠のFlash系モデルを想定) |
+| `ANTHROPIC_API_KEY` | Anthropic Claude APIキー(要約・判定・レポート生成に使用。既定モデルは Haiku 4.5) |
 
 ### 3. 監視するYouTubeチャンネルを登録
 
@@ -44,7 +44,7 @@ channelIdの調べ方: チャンネルページ(`https://www.youtube.com/@handle
 
 GitHubの `Actions` タブから各ワークフローを `Run workflow`(手動実行)で動かし、LINEにメッセージが届くか確認してください。
 
-`Test LINE Send (manual)` は株価取得・YouTube・Gemini要約に一切依存せず、LINE Messaging APIへの送信だけを検証する最小限のワークフローです(`LINE_CHANNEL_ACCESS_TOKEN`/`LINE_USER_ID`の2つのSecretsのみで動きます)。LINE送信そのものが疑わしい場合は、まずこれを実行して切り分けてください。
+`Test LINE Send (manual)` は株価取得・YouTube・Claude要約に一切依存せず、LINE Messaging APIへの送信だけを検証する最小限のワークフローです(`LINE_CHANNEL_ACCESS_TOKEN`/`LINE_USER_ID`の2つのSecretsのみで動きます)。LINE送信そのものが疑わしい場合は、まずこれを実行して切り分けてください。
 
 ローカルで確認する場合は、上記3つの環境変数をセットした上で:
 
@@ -61,7 +61,7 @@ python src/main_us.py
 ## 運用上の注意
 
 - **LINE無料メッセージ枠**: LINE Messaging APIの無料プランは月あたりのメッセージ数に上限があります(目安 月200通程度、時期により変動)。このシステムはチャート画像を「値動きが目立った銘柄」のみに絞って送信することで枠消費を抑える設計です。アラートが多発する月は枠を超過する可能性があるため、必要に応じて有料プランへの切替を検討してください。
-- **API利用料**: Gemini APIは無料枠(Flash系モデルで目安 1分あたり数リクエスト、モデルや契約状況により変動)内に収まるよう、乖離率判定は全銘柄まとめて1回のAPI呼び出しにバッチ化し、429(レート制限)発生時はサーバー指定の待機時間に従って自動リトライする設計にしています。モデル名(既定値 `gemini-flash-latest`)が古くなった場合はエラーになることがあるため、その場合は [Gemini APIのモデル一覧](https://ai.google.dev/gemini-api/docs/models) を確認し、GitHub Secretsに `GEMINI_MODEL` を追加して現行の無料枠モデル名を明示的に指定してください。
+- **API利用料**: Anthropic Claude APIは従量課金です。コストを抑えるため既定モデルは **Claude Haiku 4.5**(`claude-haiku-4-5-20251001`)にしており、モデルを変更したい場合はGitHub Secretsに `CLAUDE_MODEL` を追加すれば上書きできます。また、動画判定・週足乖離率判定はいずれも対象をまとめて1回のAPI呼び出しに送るバッチ設計にしており(件数分だけ呼び出さない)、system prompt(判断基準・出力フォーマットなど毎回変わらない部分)には[プロンプトキャッシュ](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching)(`cache_control: ephemeral`)を付与して、繰り返し呼び出す際の入力トークンコストを削減しています。ただし各system promptは現状Haikuのキャッシュ最小トークン数を下回っている可能性があり、その場合キャッシュは効果を発揮しません(エラーにはなりません)。429(レート制限)・529(サーバー過負荷)発生時は自動リトライ(最大6回、過負荷時90秒待機)します。
 - **ニュース検索・新規監視銘柄提案は現在無効**: Google Custom Search JSON APIが新規プロジェクトで使えなくなったため、個別銘柄のニュース深掘り検索と、それを元にした新規監視銘柄の提案機能は削除しています(`GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_CX`への依存も完全に削除済み)。将来的に無料で使える代替の検索手段が見つかれば復活を検討してください。
 - **マクロイベントカレンダーは検索APIを使わず固定日程で判定**: FOMC・日銀金融政策決定会合・米雇用統計・CPIはいずれも各公式サイト(FRB・日銀・BLS)が年単位で確定日程を事前公表しているため、`src/macro_calendar.py` に日程を直接ハードコードして持たせています。**年が変わったら翌年分の日程を手動で追記する必要があります**(現在は2026年分のみ登録済み)。米雇用統計・CPIは政府機関の一時閉鎖等で数日ずれることがある点に注意してください。
 - **休場日判定の限界**: `jpholiday` ライブラリ + 年末年始固定ロジックによる近似判定です。イレギュラーな臨時休場等には対応していません。米国市場は `pandas_market_calendars`(NYSEカレンダー)で判定しています。
@@ -69,4 +69,4 @@ python src/main_us.py
 
 ## エラー通知
 
-データ取得(YouTube・株価・Gemini要約等)のいずれかが失敗した場合、無言で終わらせず「◯◯の取得に失敗」という形でLINEに通知します。スクリプト全体が想定外のエラーで停止した場合も、可能な範囲で緊急通知を送ります。
+データ取得(YouTube・株価・Claude要約等)のいずれかが失敗した場合、無言で終わらせず「◯◯の取得に失敗」という形でLINEに通知します。スクリプト全体が想定外のエラーで停止した場合も、可能な範囲で緊急通知を送ります。

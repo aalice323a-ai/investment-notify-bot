@@ -30,10 +30,10 @@ _client_instance: genai.Client | None = None
 # 無料枠は1分あたりのリクエスト数が非常に少ない(モデルによっては5RPM程度)ため、
 # 429(RESOURCE_EXHAUSTED)時はサーバー指定の待機時間(retryDelay)に従ってリトライする。
 # 503(UNAVAILABLE/モデル過負荷)は待機時間がレスポンスに含まれないことが多いため、
-# 固定60秒待ってリトライする。いずれも初回+最大3回リトライ(計4試行)。
-_MAX_RETRIES = 4
+# 固定90秒待ってリトライする。いずれも初回+最大5回リトライ(計6試行)。
+_MAX_RETRIES = 6
 _DEFAULT_BACKOFF_SECONDS = 20.0
-_OVERLOAD_BACKOFF_SECONDS = 60.0
+_OVERLOAD_BACKOFF_SECONDS = 90.0
 _RETRY_DELAY_RE = re.compile(r"retryDelay[\"':\s]+(\d+(?:\.\d+)?)s")
 # エラーメッセージがGoogle側の判断で日本語化されて返ってくることがあるため、
 # 英語・日本語どちらのキーワードも見る(実例: "このモデルは現在高い需要を抱えています")。
